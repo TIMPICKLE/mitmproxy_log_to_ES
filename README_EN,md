@@ -1,0 +1,335 @@
+# GitHub Copilot Logs to Elasticsearch
+
+This Python application periodically collects GitHub Copilot chat logs captured by mitmproxy from a specified directory, parses them, and uploads them to an Elasticsearch database, supporting visualization analysis through Grafana.
+
+## Features
+
+- Monitors JSON log files in a specified directory
+- Parses and converts JSON data into Elasticsearch-friendly format
+- Stores log data in Elasticsearch
+- Supports multiple running modes (one-time execution, scheduled execution)
+- Provides detailed logging
+- Supports incremental processing (tracks processed files)
+- Configurable Elasticsearch connection parameters and index settings
+
+## System Requirements
+
+- Python 3.8+
+- Ubuntu server
+- mitmproxy (installed, used for generating logs)
+- Elasticsearch 7.x+ instance
+- Grafana (for data visualization, optional)
+
+## Installation
+
+### Installation with Internet Access
+
+1. Clone this repository or download the source code to your server:
+
+```bash
+git clone <repository-url>
+cd ESscript
+```
+
+2. Create a virtual environment and install dependencies:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Installation in an Offline Environment (Using Offline Packages)
+
+1. Transfer the entire project directory (including the `offline_packages` folder) to the server
+
+2. Create a virtual environment on the server:
+
+```bash
+cd ESscript
+sudo python3 -m venv venv
+source venv/bin/activate
+```
+
+3. Install required virtual environment packages for Ubuntu:
+
+```bash
+# If python3-venv is not installed
+sudo apt install python3.9-venv  # Or the package suitable for your Python version
+```
+
+4. Install dependencies using offline packages:
+
+```bash
+pip install --no-index --find-links=offline_packages -r requirements.txt
+```
+
+> **Note**: On Ubuntu, some Windows wheel packages may not be compatible. If installation fails, modify requirements.txt, comment out incompatible packages (such as watchdog, PyYAML, etc.), and reinstall. The main functionality will still work without these dependencies.
+
+## Configuration
+
+Modify the `config.py` file and set the relevant parameters according to your environment:
+
+```python
+# Log source directory
+LOG_SOURCE_DIR = "/home/sysadm/logs/usage/nihao.li/chat-panel"
+
+# Elasticsearch configuration
+ES_HOST = "localhost"  # Elasticsearch host
+ES_PORT = 9200         # Elasticsearch port
+ES_USERNAME = None     # ES username (if authentication is enabled)
+ES_PASSWORD = None     # ES password (if authentication is enabled)
+ES_INDEX_PREFIX = "copilot-logs"  # Index prefix
+
+# Processing configuration
+PROCESS_INTERVAL = 3000  # Processing interval (seconds, default 50 minutes)
+MAX_FILES_PER_BATCH = 100  # Maximum number of files per batch
+```
+
+## Usage
+
+### Running Modes
+
+This program supports multiple running modes, which can be selected through command-line arguments:
+
+1. **One-time Execution Mode** (recommended for offline environments):
+   ```bash
+   python main.py --once
+   ```
+   In this mode, the program processes unprocessed log files once and then exits. Suitable for running through external schedulers like cron. No additional dependency packages required.
+
+2. **Scheduled Execution Mode** (recommended for offline environments):
+   ```bash
+   python main.py --schedule
+   ```
+   In this mode, the program periodically executes processing tasks according to the interval set in `config.py` (`PROCESS_INTERVAL`, default is 3000 seconds/50 minutes). No additional dependency packages required.
+
+3. **File Watching Mode** (default mode, requires watchdog dependency):
+   ```bash
+   python main.py
+   ```
+   Or explicitly specified:
+   ```bash
+   python main.py --watch
+   ```
+   In this mode, the program continuously monitors new files in the log directory. **Note: This mode requires the watchdog library and may not be available in offline environments**.
+
+> **Important Note**: In an offline Ubuntu server environment, it's recommended to use `--schedule` or `--once` mode to avoid using the file watching mode that requires additional dependencies.
+
+### Setting Up as a Scheduled Task (Using systemd)
+
+1. Create a systemd service file:
+
+```bash
+sudo nano /etc/systemd/system/copilot-log-es.service
+```
+
+2. Add the following content (note the --schedule parameter):
+
+```
+[Unit]
+Description=GitHub Copilot Log to Elasticsearch Service
+After=network.target elasticsearch.service
+
+[Service]
+Type=simple
+User=sysadm
+WorkingDirectory=/path/to/ESscript
+ExecStart=/path/to/ESscript/venv/bin/python main.py --schedule
+Restart=always
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target
+```
+
+3. Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable copilot-log-es
+sudo systemctl start copilot-log-es
+```
+
+4. Check the service status:
+
+```bash
+sudo systemctl status copilot-log-es
+```
+
+### Setting Up as a Scheduled Task (Using cron)
+
+1. Edit crontab:
+
+```bash
+crontab -e
+```
+
+2. Add the following content (execute once per hour):
+
+```
+When running a Python script in a virtual environment using a cron job, you must explicitly activate the virtual environment or specify the path to the virtual environment's Python interpreter
+# Assuming the virtual environment directory is `/path/to/venv`
+/path/to/venv/bin/python
+Then use this command
+*/60 * * * * /path/to/venv/bin/python /path/to/script.py > /path/to/output.log 2>&1
+```
+
+Note: When using cron, it's recommended to use the `--once` mode, as cron itself already provides scheduling functionality.
+
+## Log Output
+
+The program provides detailed logging, including:
+
+- Startup information (including running mode)
+- Status during processing
+- Elasticsearch connection and index information
+- Error and warning messages
+
+Log files are located at `logs/application.log`, with 5 rotated log files of 10MB each by default.
+
+```bash
+# View logs
+tail -f logs/application.log
+```
+
+## Data Structure
+
+The application converts each Copilot log file into an Elasticsearch document, mainly containing the following fields:
+
+- `timestamp`: Log recording time
+- `user_id`: User ID (extracted from path)
+- `file_name`: Original log filename
+- `conversation`: Conversation content array
+  - `role`: Message sender role (user/assistant)
+  - `content`: Message content
+  - `timestamp`: Message time (if available)
+- `metadata`: Other metadata
+  - `proxy_time_consumed`: Proxy time consumed
+  - `ip_address`: User IP
+  - `machine_id`: Machine ID
+  - `editor_version`: Editor version
+  - `model`: Model used
+
+## Grafana Configuration and Usage
+
+### Configuring Elasticsearch Data Source
+
+1. Log in to the Grafana admin interface
+2. Go to "Configuration" > "Data Sources"
+3. Click "Add data source"
+4. Select "Elasticsearch"
+5. Configure data source parameters:
+   - Name: Copilot Logs
+   - URL: http://elasticsearch:9200 (adjust according to your environment)
+   - Access: Server (default)
+   - If authentication is required, fill in Basic Auth information
+   - Index name: copilot-chat-logs (use wildcard to match all relevant indices)
+   - Time field name: timestamp
+   - Version: Choose your Elasticsearch version
+
+### Creating a Grafana Dashboard
+
+1. Click the "+" button in the left menu, select "Dashboard"
+2. Click "Add new panel"
+3. Configure the query:
+   - Select the Elasticsearch data source you just configured
+   - Enter Lucene query syntax in the "Query" input box
+
+### Grafana Lucene Query Examples
+
+Here are some useful Grafana Lucene query examples:
+
+**View all conversation records**:
+```
+*
+```
+
+**Search by specific user**:
+```
+user_id:"nihao.li"
+```
+
+**Search for conversations containing specific keywords**:
+```
+conversation.content:"python"
+```
+
+**Combine query conditions**:
+```
+user_id:"nihao.li" AND conversation.content:"elasticsearch"
+```
+
+**Query records with specific editor version**:
+```
+metadata.editor_version:"vscode-1.87.0"
+```
+
+**Query records with specific model**:
+```
+metadata.model:"gpt-4"
+```
+
+## Monitoring and Maintenance
+
+### Check Processing Status
+
+```bash
+cat processed_files.log
+```
+
+### Reset Processing Status (Start Processing from the Beginning)
+
+```bash
+rm processed_files.log
+```
+
+### Confirm Data Has Been Successfully Indexed to Elasticsearch
+
+```bash
+# Check if the index exists
+curl -X GET "http://localhost:9200/_cat/indices?v"
+
+# View the number of documents in a specific index
+curl -X GET "http://localhost:9200/copilot-logs-2025-04/_count"
+
+# View some example documents in the index
+curl -X GET "http://localhost:9200/copilot-logs-2025-04/_search?pretty&size=5"
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Program cannot connect to Elasticsearch**
+   - Confirm Elasticsearch service is running
+   - Check host and port in configuration
+   - Verify network connection and firewall settings
+
+2. **Log files not found**
+   - Confirm LOG_SOURCE_DIR path is correctly configured
+   - Check directory permissions
+
+3. **JSON parsing error**
+   - Check error details in the logs
+   - Verify log file format meets expectations
+
+4. **Missing dependency package errors**
+   - In offline environments, some dependencies may not install (such as watchdog)
+   - Use `--schedule` or `--once` mode to avoid features requiring all dependencies
+   - If necessary, modify requirements.txt, comment out incompatible packages
+
+5. **Virtual environment creation failure**
+   - On Ubuntu systems, you may need to install the python3-venv package:
+   ```bash
+   sudo apt install python3.9-venv  # Or the package suitable for your Python version
+   ```
+
+6. **Grafana cannot display data**
+   - Confirm Elasticsearch data source is correctly configured
+   - Verify index name matches (`copilot-logs-*`)
+   - Check time range settings are appropriate
+
+### Support
+
+For issues or suggestions, please contact the system administrator.
