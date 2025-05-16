@@ -1,3 +1,5 @@
+# English version readme:https://github.com/TIMPICKLE/mitmproxy_log_to_ES/blob/main/README_EN%2Cmd
+
 # GitHub Copilot 日志到 Elasticsearch
 
 这个Python应用程序定时将mitmproxy捕获的GitHub Copilot聊天日志从指定目录获取，解析并上传至Elasticsearch数据库，支持通过Grafana进行可视化分析。
