@@ -3,6 +3,7 @@
 # GitHub Copilot 日志到 Elasticsearch
 
 这个Python应用程序定时将mitmproxy捕获的GitHub Copilot聊天日志从指定目录获取，解析并上传至Elasticsearch数据库，支持通过Grafana进行可视化分析。
+开箱即用，项目所有依赖的包全部已经下载至offline_packages文件夹中，无需另外安装依赖。
 
 ## 功能特点
 
